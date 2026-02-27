@@ -2,17 +2,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.github.cetoprca</groupId>
-    <artifactId>DTOGenerator</artifactId>
-    <version>1.0</version>
+    <artifactId>processor</artifactId>
+    <version>1.3</version>
     <packaging>jar</packaging>
-
-    <distributionManagement>
-        <repository>
-            <id>github</id>
-            <name>Github Packages</name>
-            <url>https://maven.pkg.github.com/cetoprca/DTOGenerator</url>
-        </repository>
-    </distributionManagement>
 
     <dependencies>
         <dependency>
