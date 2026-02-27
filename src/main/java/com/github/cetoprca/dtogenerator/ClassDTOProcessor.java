@@ -15,7 +15,7 @@ import java.io.Writer;
 import java.util.*;
 
 @AutoService(Processor.class)
-@SupportedAnnotationTypes("app.annotation.GenerateDTO")
+@SupportedAnnotationTypes("com.github.cetoprca.dtogenerator.annotation.GenerateDTO")
 @SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class ClassDTOProcessor extends AbstractProcessor {
 
