@@ -1,12 +1,13 @@
-package app;
+package com.github.cetoprca.dtogenerator;
 
-import app.annotation.*;
+import com.github.cetoprca.dtogenerator.annotation.*;
 import com.google.auto.service.AutoService;
 
 import javax.annotation.processing.*;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.*;
 import javax.lang.model.type.MirroredTypeException;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
@@ -46,9 +47,12 @@ public class ClassDTOProcessor extends AbstractProcessor {
 
     private void generateClassDTOs(TypeElement currentClass) throws Exception {
 
-
         Map<String, List<VariableElement>> DTOsAndFields = new HashMap<>();
-        DTOsAndFields.put("", new ArrayList<>());
+
+        TypeMirror superClass = currentClass.getSuperclass();
+        TypeElement object = processingEnv.getElementUtils().getTypeElement("java.lang.Object");
+
+        boolean classExtends = superClass.getKind() != TypeKind.NONE && !processingEnv.getTypeUtils().isSameType(superClass, object.asType());
 
         TypeElement originalClass = currentClass;
         while (currentClass != null) {
@@ -67,16 +71,20 @@ public class ClassDTOProcessor extends AbstractProcessor {
 
                     // Ignorar campos marcados como @Secret
                     if (var.getAnnotation(Secret.class) == null) {
-                        DTOsAndFields.computeIfAbsent("Full", _ -> new ArrayList<>()).add(var);
-                        if (currentClass == originalClass){
-                            DTOsAndFields.computeIfAbsent("Base", _ -> new ArrayList<>()).add(var);
+                        if (classExtends){
+                            DTOsAndFields.computeIfAbsent("Full", _ -> new ArrayList<>()).add(var);
+                            if (currentClass == originalClass){
+                                DTOsAndFields.computeIfAbsent("Base", _ -> new ArrayList<>()).add(var);
+                            }
+                        }else{
+                            DTOsAndFields.computeIfAbsent("", _ -> new ArrayList<>()).add(var);
                         }
                     }
                 }
             }
 
             // Subimos a la superclase
-            TypeMirror superClass = currentClass.getSuperclass();
+            superClass = currentClass.getSuperclass();
             if (superClass.getKind().isPrimitive() || superClass.toString().equals("java.lang.Object")) {
                 break; // no hay más superclases
             }
@@ -133,7 +141,7 @@ public class ClassDTOProcessor extends AbstractProcessor {
                     fieldType = "java.util.List<" + relationClassIdType + ">";
                 }else{
                     try {
-                        Class<?> clazz = rel.relationClass();
+                        Class<?> clazz = rel.relationClassIdType();
                     } catch (MirroredTypeException mte) {
                         idTypeMirror = mte.getTypeMirror();
                     }

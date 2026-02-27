@@ -1,4 +1,4 @@
-package app.annotation;
+package com.github.cetoprca.dtogenerator.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
