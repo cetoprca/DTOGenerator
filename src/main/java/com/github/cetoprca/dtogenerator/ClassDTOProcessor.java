@@ -11,6 +11,7 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
+import java.io.IOException;
 import java.io.Writer;
 import java.util.*;
 
@@ -19,8 +20,24 @@ import java.util.*;
 @SupportedSourceVersion(SourceVersion.RELEASE_25)
 public class ClassDTOProcessor extends AbstractProcessor {
 
+    private boolean genericDTOGenerated = false;
+
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+
+        if (!genericDTOGenerated){
+            try {
+                generateGenericDTOInterface("com.github.cetoprca.GenericDTO");
+                genericDTOGenerated = true;
+            } catch (IOException e) {
+                processingEnv.getMessager().printMessage(
+                        Diagnostic.Kind.ERROR,
+                        "Error generando DTO: " + e.getMessage() + Arrays.toString(e.getStackTrace())
+                );
+            }
+        }
+
+
         for (Element element : roundEnv.getElementsAnnotatedWith(GenerateDTO.class)) {
 
             if (element.getKind() == ElementKind.CLASS) {
@@ -152,7 +169,7 @@ public class ClassDTOProcessor extends AbstractProcessor {
             sb.append(fieldType).append(" ").append(fieldName);
             if (i < variables.size() - 1) sb.append(", ");
         }
-        sb.append(") {\n"); // fin cabecera record
+        sb.append(") implements com.github.cetoprca.GenericDTO.GenericDTO<").append(originalClassName).append("> {\n"); // fin cabecera record
 
         // Constructor desde la clase original
         sb.append("    public ").append(dtoClassName).append("(").append(originalClassName).append(" original) {\n");
@@ -209,5 +226,24 @@ public class ClassDTOProcessor extends AbstractProcessor {
     private String capitalize(String str) {
         if (str == null || str.isEmpty()) return str;
         return str.substring(0, 1).toUpperCase() + str.substring(1);
+    }
+
+    private void generateGenericDTOInterface(String packageName) throws IOException {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("package ").append(packageName).append(";\n\n");
+
+        sb.append("""
+                public interface GenericDTO<T> {
+                    public T toOriginal();
+                }
+                """);
+
+        JavaFileObject file = processingEnv.getFiler()
+                .createSourceFile(packageName + "." + "GenericDTO");
+
+        try (Writer writer = file.openWriter()) {
+            writer.write(sb.toString());
+        }
     }
 }
