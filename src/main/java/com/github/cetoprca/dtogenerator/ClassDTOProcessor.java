@@ -71,45 +71,32 @@ public class ClassDTOProcessor extends AbstractProcessor {
 
         boolean classExtends = superClass.getKind() != TypeKind.NONE && !processingEnv.getTypeUtils().isSameType(superClass, object.asType());
 
-        TypeElement originalClass = currentClass;
-        while (currentClass != null) {
-
-            // Recorremos los elementos de la clase actual
-            for (Element e : currentClass.getEnclosedElements()) {
-                if (e.getKind() == ElementKind.FIELD) {
-                    VariableElement var = (VariableElement) e;
-
-                    // Obtener todas las anotaciones repetibles @AppearsInDTO
-                    AppearsInDTO[] anns = var.getAnnotationsByType(AppearsInDTO.class);
-                    for (AppearsInDTO ann : anns) {
-                        String customDTOName = ann.name();
-                        DTOsAndFields.computeIfAbsent(customDTOName, _ -> new ArrayList<>()).add(var);
-                    }
-
-                    // Ignorar campos marcados como @Secret
-                    if (var.getAnnotation(Secret.class) == null) {
-                        if (classExtends){
-                            DTOsAndFields.computeIfAbsent("Full", _ -> new ArrayList<>()).add(var);
-                            if (currentClass == originalClass){
-                                DTOsAndFields.computeIfAbsent("Base", _ -> new ArrayList<>()).add(var);
-                            }
-                        }else{
-                            DTOsAndFields.computeIfAbsent("", _ -> new ArrayList<>()).add(var);
+        for (VariableElement var : getAllFields(currentClass)) {
+            if (var.getKind() == ElementKind.FIELD) {
+                // ignorar estáticos
+                if (var.getModifiers().contains(Modifier.STATIC))
+                    continue;
+                // Obtener todas las anotaciones repetibles
+                AppearsInDTO[] anns = var.getAnnotationsByType(AppearsInDTO.class);
+                for (AppearsInDTO ann : anns) {
+                    String customDTOName = ann.name();
+                    DTOsAndFields.computeIfAbsent(customDTOName, _ -> new ArrayList<>()).add(var);
+                }
+                // Ignorar @Secret
+                if (var.getAnnotation(Secret.class) == null) {
+                    if (classExtends) {
+                        // FULL → incluye heredados
+                        DTOsAndFields.computeIfAbsent("Full", _ -> new ArrayList<>()).add(var);
+                        // BASE → solo campos propios
+                        if (var.getEnclosingElement().equals(currentClass)) {
+                            DTOsAndFields.computeIfAbsent("Base", _ -> new ArrayList<>()).add(var);
                         }
+                    } else {
+                        DTOsAndFields.computeIfAbsent("", _ -> new ArrayList<>()).add(var);
                     }
                 }
             }
-
-            // Subimos a la superclase
-            superClass = currentClass.getSuperclass();
-            if (superClass.getKind().isPrimitive() || superClass.toString().equals("java.lang.Object")) {
-                break; // no hay más superclases
-            }
-            currentClass = (TypeElement) processingEnv.getTypeUtils().asElement(superClass);
         }
-
-
-        currentClass = originalClass;
 
         for (Map.Entry<String, List<VariableElement>> entry : DTOsAndFields.entrySet()){
             String packageName = processingEnv.getElementUtils().getPackageOf(currentClass).getQualifiedName().toString();
@@ -148,20 +135,14 @@ public class ClassDTOProcessor extends AbstractProcessor {
             Relational rel = var.getAnnotation(Relational.class);
             if (rel != null) {
                 TypeMirror idTypeMirror = null;
-                if (rel.isCollection()){
-                    try {
-                        Class<?> clazz = rel.relationClassIdType();
-                    } catch (MirroredTypeException mte) {
-                        idTypeMirror = mte.getTypeMirror();
-                    }
-                    String relationClassIdType = idTypeMirror.toString();
-                    fieldType = "java.util.List<" + relationClassIdType + ">";
-                }else{
-                    try {
-                        Class<?> clazz = rel.relationClassIdType();
-                    } catch (MirroredTypeException mte) {
-                        idTypeMirror = mte.getTypeMirror();
-                    }
+                try {
+                    Class<?> clazz = rel.relationClassIdType();
+                } catch (MirroredTypeException mte) {
+                    idTypeMirror = mte.getTypeMirror();
+                }
+                if (rel.isCollection()) {
+                    fieldType = "java.util.List<" + idTypeMirror + ">";
+                } else {
                     fieldType = idTypeMirror.toString();
                 }
             }
@@ -169,7 +150,7 @@ public class ClassDTOProcessor extends AbstractProcessor {
             sb.append(fieldType).append(" ").append(fieldName);
             if (i < variables.size() - 1) sb.append(", ");
         }
-        sb.append(") implements com.github.cetoprca.GenericDTO.GenericDTO<").append(originalClassName).append("> {\n"); // fin cabecera record
+        sb.append(") implements com.github.cetoprca.GenericDTO.GenericDTO<").append(originalClassName).append("> {\n");
 
         // Constructor desde la clase original
         sb.append("    public ").append(dtoClassName).append("(").append(originalClassName).append(" original) {\n");
@@ -181,7 +162,7 @@ public class ClassDTOProcessor extends AbstractProcessor {
 
             Relational rel = var.getAnnotation(Relational.class);
             if (rel != null) {
-                if (rel.isCollection()){
+                if (rel.isCollection()) {
                     TypeMirror idTypeMirror = null;
                     try {
                         Class<?> clazz = rel.relationClass();
@@ -189,28 +170,34 @@ public class ClassDTOProcessor extends AbstractProcessor {
                         idTypeMirror = mte.getTypeMirror();
                     }
                     String relationClass = idTypeMirror.toString();
-                    sb.append("original.").append("get").append(capitalize(fieldName)).append("().stream().map(")
-                            .append(relationClass).append("::get").append(capitalize(rel.relationIDName())).append(").toList()");
-                }else{
-                    sb.append("original.").append("get").append(capitalize(fieldName)).append("().get").append(capitalize(rel.relationIDName())).append("()");
+
+                    sb.append("(original.get").append(capitalize(fieldName)).append("() != null ? ")
+                            .append("original.get").append(capitalize(fieldName))
+                            .append("().stream().map(")
+                            .append(relationClass).append("::get").append(capitalize(rel.relationIDName())).append(").toList() ")
+                            .append(": java.util.List.of())");
+
+                } else {
+                    sb.append("(original.get").append(capitalize(fieldName)).append("() != null ? ")
+                            .append("original.get").append(capitalize(fieldName))
+                            .append("().get").append(capitalize(rel.relationIDName())).append("() : -1)");
                 }
             } else {
-                sb.append("original.").append("get").append(capitalize(fieldName)).append("()");
+                sb.append("original.get").append(capitalize(fieldName)).append("()");
             }
 
             if (i < variables.size() - 1) sb.append(", ");
         }
+
         sb.append(");\n");
         sb.append("    }\n\n");
 
+        // Método para reconstruir original (sin relaciones)
         sb.append("    public ").append(originalClassName).append(" toOriginal() {\n");
         sb.append("        ").append(originalClassName).append(" obj = new ").append(originalClassName).append("();\n");
         for (VariableElement var : variables) {
             String fieldName = var.getSimpleName().toString();
-            if (var.getAnnotation(Relational.class) != null) {
-                sb.append("        // obj.set").append(capitalize(fieldName))
-                        .append("(null); // no se puede reconstruir relación solo con el id\n");
-            } else {
+            if (var.getAnnotation(Relational.class) == null) {
                 sb.append("        obj.set").append(capitalize(fieldName))
                         .append("(this.").append(fieldName).append(");\n");
             }
@@ -245,5 +232,33 @@ public class ClassDTOProcessor extends AbstractProcessor {
         try (Writer writer = file.openWriter()) {
             writer.write(sb.toString());
         }
+    }
+
+    private List<VariableElement> getAllFields(TypeElement type) {
+
+        List<VariableElement> fields = new ArrayList<>();
+
+        while (type != null) {
+
+            for (Element e : type.getEnclosedElements()) {
+                if (e.getKind() == ElementKind.FIELD) {
+                    fields.add((VariableElement) e);
+                }
+            }
+
+            TypeMirror superMirror = type.getSuperclass();
+
+            if (superMirror.getKind() == TypeKind.NONE)
+                break;
+
+            if (superMirror.toString().equals("java.lang.Object"))
+                break;
+
+            type = (TypeElement) processingEnv
+                    .getTypeUtils()
+                    .asElement(superMirror);
+        }
+
+        return fields;
     }
 }
